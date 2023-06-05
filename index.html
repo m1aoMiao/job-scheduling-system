@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <!-- import CSS -->
+    <link rel="stylesheet" href="./css/index.css" />
+    <link rel="stylesheet" href="./css/style.css" />
+    <title>CPU调度算法</title>
+  </head>
+
+  <body>
+    <div class="main-container">
+      <el-container>
+        <el-header>
+          <h2>CPU调度算法</h2>
+          <h3>
+            进程id 到达时间 运行时间
+            <b class="priority">优先级数</b>
+          </h3>
+        </el-header>
+        <el-main>
+          <div id="app" v-cloak>
+            <el-input
+              type="textarea"
+              :rows="8"
+              placeholder="请输入内容"
+              v-model="processText"
+            >
+            </el-input>
+            <div class="radio-type">
+              <el-radio v-model="radioType" label="1" border
+                >先来先服务</el-radio
+              >
+              <el-radio v-model="radioType" label="2" border
+                >抢占式短作业优先</el-radio
+              >
+              <el-radio v-model="radioType" label="3" border
+                >时间片轮转</el-radio
+              >
+              <el-radio v-model="radioType" label="4" border
+                >优先级调度算法</el-radio
+              >
+              <el-radio v-model="radioType" label="5" border
+                >最高响应比优先算法</el-radio
+              >
+            </div>
+
+            <el-button class="btn" @click="submit" type="primary"
+              >运行</el-button
+            >
+
+            <div class="wrap">
+              <canvas id="canvasAxis" width="1000" height="500"> </canvas>
+              <canvas id="canvasContent" width="1000" height="500"> </canvas>
+              <div class="cover" ref="cover"></div>
+            </div>
+            <el-button class="btn1" @click="pause" type="primary"
+              >暂停</el-button
+            >
+            <el-button class="btn2" @click="run" type="primary">继续</el-button>
+
+            <el-table :data="tableData" border style="width: 100%" height="500">
+              <el-table-column prop="time" label="时钟" width="87">
+              </el-table-column>
+              <el-table-column prop="name" label="进程名" width="80">
+              </el-table-column>
+              <el-table-column prop="arrivalTime" label="到达时间" width="120">
+              </el-table-column>
+              <el-table-column prop="burstTime" label="服务时间" width="120">
+              </el-table-column>
+              <el-table-column prop="cpuTime" label="已服务" width="120">
+              </el-table-column>
+              <el-table-column prop="allTime" label="剩余服务" width="120">
+              </el-table-column>
+
+              <el-table-column
+                class="tag"
+                align="center"
+                label="状态描述"
+                width="120"
+              >
+                <template slot-scope="scope">
+                  <el-tag
+                    :type="getTagType(scope.row.state)"
+                    v-text="scope.row.state"
+                  ></el-tag>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </el-main>
+      </el-container>
+    </div>
+
+    <!-- import Vue before Element -->
+    <script src="./js/vue.js"></script>
+    <!-- import JavaScript -->
+    <script src="./js/index.js"></script>
+    <!-- 画坐标图 -->
+    <script src="./js/draw.js"></script>
+
+    <script>
+      const process = {
+        id: 0,
+        name: "", //进程标识名
+        arrivalTime: 0, // 到达时间
+        burstTime: 0, // 服务时间
+        cpuTime: 0, // 进程已占用CPU时间
+        allTime: 0, // 还需占用的CPU时间，当进程运行完毕时，ALLTIME变为0
+        blockTime: 0, // 进程被阻塞的时间
+        state: "", // 进程状态
+        priority: 0,
+        responseRatio: 0,
+      };
+
+      const tableDataItem = {
+        time: 0,
+        name: "", //进程标识名
+        arrivalTime: 0, // 到达时间
+        burstTime: 0, // 服务时间
+        cpuTime: 0, // 进程已占用CPU时间
+        allTime: 0, // 还需占用的CPU时间，当进程运行完毕时，ALLTIME变为0
+        blockTime: 0, // 进程被阻塞的时间
+        state: "", // 进程状态
+        priority: 0,
+        responseRatio: 0,
+      };
+
+      new Vue({
+        el: "#app",
+        data: {
+          processText:
+            "1 A 0 3\n2 B 2 6\n3 C 4 4\n4 D 6 5\n5 E 8 2\n6 F 10 3\n7 G 12 2",
+          allProcess: [], // 所有进程
+          allTime: 0, //总服务时间
+          tableData: [],
+          priority: 0,
+          radioType: "4",
+          processList: [],
+        },
+        watch: {
+          radioType() {
+            this.$refs.cover.style.animationName = "";
+          },
+        },
+        methods: {
+          HRRN() {
+            // this.validateProcesses();
+            this.calculateWaitingTimes();
+            this.calculateTurnaroundTimes();
+            this.calculateResponseRatios();
+            this.heapSortByResponseRatio();
+            this.printScheduleOrder();
+          },
+          validateProcesses() {
+            for (const process of this.processList) {
+              if (
+                typeof process.id !== "number" ||
+                typeof process.name !== "string" ||
+                typeof process.arrivalTime !== "number" ||
+                typeof process.burstTime !== "number"
+              ) {
+                throw new Error(
+                  "Invalid process data. Numeric values are expected."
+                );
+              }
+            }
+          },
+          calculateWaitingTimes() {
+            let currentTime = 0;
+            let totalWaitingTime = 0;
+
+            for (const process of this.processList) {
+              if (process.arrivalTime > currentTime) {
+                currentTime = process.arrivalTime;
+              }
+
+              process.waitingTime = currentTime - process.arrivalTime;
+              totalWaitingTime += process.waitingTime;
+              currentTime += process.burstTime;
+            }
+
+            return totalWaitingTime;
+          },
+          calculateTurnaroundTimes() {
+            for (const process of this.processList) {
+              process.turnaroundTime = process.waitingTime + process.burstTime;
+            }
+          },
+          calculateResponseRatios() {
+            for (const process of this.processList) {
+              process.responseRatio = (
+                (process.waitingTime + process.burstTime) /
+                process.burstTime
+              ).toFixed(3);
+            }
+          },
+
+          //   堆排序
+          heapify(arr, n, i) {
+            let largest = i;
+            const left = 2 * i + 1;
+            const right = 2 * i + 2;
+
+            if (
+              left < n &&
+              arr[left].responseRatio > arr[largest].responseRatio
+            ) {
+              largest = left;
+            }
+
+            if (
+              right < n &&
+              arr[right].responseRatio > arr[largest].responseRatio
+            ) {
+              largest = right;
+            }
+
+            if (largest !== i) {
+              [arr[i], arr[largest]] = [arr[largest], arr[i]];
+              this.heapify(arr, n, largest);
+            }
+          },
+
+          buildMaxHeap(arr) {
+            const n = arr.length;
+            for (let i = Math.floor(n / 2) - 1; i >= 0; i--) {
+              this.heapify(arr, n, i);
+            }
+          },
+
+          heapSortByResponseRatio() {
+            let arr = this.processList;
+            const n = arr.length;
+
+            this.buildMaxHeap(arr);
+
+            for (let i = n - 1; i >= 0; i--) {
+              [arr[0], arr[i]] = [arr[i], arr[0]];
+              this.heapify(arr, i, 0);
+            }
+          },
+
+          printScheduleOrder() {
+            console.log("Job Schedule Order:");
+            for (const process of this.processList) {
+              console.log(process.name, process.responseRatio);
+            }
+          },
+
+          getTagType(state) {
+            type = "";
+            switch (state) {
+              case "到达":
+                type = "success";
+                break;
+              case "服务":
+                type = "warning";
+                break;
+              case "结束":
+                type = "danger";
+                break;
+            }
+            return type;
+          },
+
+          // 获取所有进程，文本框内的文本转对象。
+          getAllProcess() {
+            // 换行符分割换行，也就是进程，一个成员(一行)为一个进程的信息。
+            const processLine = this.processText.split("\n");
+
+            // 局部所有进程变量
+            let m_allProcess = [];
+            let allTime = 0; // 所有进程加起来需要服务的时间
+
+            processLine.forEach((item) => {
+              // 遍历分割进程,写入进程对象
+              const processItem = item.split(" ");
+              let m_process = Object.assign({}, process); // ES6的对象拷贝
+              [
+                m_process.id,
+                m_process.name,
+                m_process.arrivalTime,
+                m_process.burstTime,
+              ] = processItem; //解构赋值，等同于下
+
+              if (processItem.length == 5) {
+                [m_process.priority] = processItem; //解构赋值，等同于下
+              }
+              m_process.id = Number(m_process.id);
+              m_process.arrivalTime = Number(m_process.arrivalTime);
+              m_process.burstTime = Number(m_process.burstTime);
+              m_process.allTime = Number(m_process.allTime);
+              m_process.cpuTime = Number(m_process.cpuTime);
+
+              allTime += Number(m_process.burstTime);
+              m_allProcess.push(m_process);
+            });
+            return [m_allProcess, allTime];
+          },
+          // 先来先服务
+          FCFS() {
+            this.tableData = [];
+
+            for (let i = 0; i <= this.allTime; i++) {
+              let doing = false; // 判断本秒钟是否服务过。
+              for (const item of this.allProcess) {
+                // 判断是否到达
+                if (item.arrivalTime === i) {
+                  item.state = "到达";
+                  item.allTime = item.burstTime;
+                  let data = {
+                    time: i,
+                    ...item,
+                  };
+
+                  this.tableData.push(data);
+                }
+
+                if (
+                  item.state === "到达" &&
+                  item.arrivalTime !== i &&
+                  item.allTime > 0 &&
+                  doing === false
+                ) {
+                  item.cpuTime++;
+                  item.allTime--;
+
+                  let state = item.allTime === 0 ? "结束" : "服务";
+
+                  let data = {
+                    time: i,
+                    name: item.name,
+                    arrivalTime: item.arrivalTime,
+                    burstTime: item.burstTime,
+                    cpuTime: item.cpuTime,
+                    allTime: item.allTime,
+                    state: state,
+                  };
+                  this.tableData.push(data);
+                  doing = true;
+                }
+              }
+            }
+          },
+
+          // 抢占式短作业优先
+          SJF_QZ() {
+            this.tableData = [];
+            for (let i = 0; i <= this.allTime; i++) {
+              let doing = false;
+              for (const item of this.allProcess) {
+                // 判断是否到达
+                if (parseInt(item.arrivalTime) === i) {
+                  let data = {
+                    time: i,
+                    name: item.name,
+                    arrivalTime: item.arrivalTime,
+                    burstTime: item.burstTime,
+                    cpuTime: item.cpuTime,
+                    allTime: item.burstTime, // 到达的时候 allTime = burstTime
+                    state: "到达",
+                  };
+                  item.state = "到达";
+                  item.allTime = item.burstTime;
+                  this.tableData.push(data);
+                }
+
+                // 该服务谁...
+                // 1.到达了 2.最短
+
+                // 到达的组成一个新数组
+                let arriveArr = []; //到达了的数组
+                for (const m_item of this.allProcess) {
+                  if (
+                    m_item.state === "到达" &&
+                    parseInt(m_item.arrivalTime) !== i &&
+                    parseInt(m_item.allTime) > 0
+                  ) {
+                    arriveArr.push(m_item);
+                  }
+                }
+
+                // 找到最小的那个的序号
+                let min = 0;
+                let k = 0; //最小的那个的序号
+                for (let j = 0; j < arriveArr.length; j++) {
+                  if (j === 1) {
+                    min = arriveArr[0].allTime;
+                    k = 0;
+                  }
+
+                  if (min > arriveArr[j].allTime) {
+                    min = arriveArr[j].allTime;
+                    k = j;
+                  }
+                }
+
+                if (doing === false && arriveArr.length > 0) {
+                  arriveArr[k].cpuTime = parseInt(arriveArr[k].cpuTime) + 1;
+                  arriveArr[k].allTime = parseInt(arriveArr[k].allTime) - 1;
+
+                  let state = arriveArr[k].allTime === 0 ? "结束" : "服务";
+
+                  let data = {
+                    time: i,
+                    name: arriveArr[k].name,
+                    arrivalTime: arriveArr[k].arrivalTime,
+                    burstTime: arriveArr[k].burstTime,
+                    cpuTime: arriveArr[k].cpuTime,
+                    allTime: arriveArr[k].allTime,
+                    state: state,
+                  };
+                  this.tableData.push(data);
+
+                  this.allProcess.forEach((item) => {
+                    if (item.name == arriveArr[k].name) {
+                      item = arriveArr[k];
+                    }
+                  });
+
+                  doing = true;
+                }
+              }
+            }
+          },
+
+          // 时间片轮转
+          RR() {
+            this.tableData = [];
+
+            let arriveArr = []; //到达了的数组
+
+            for (let i = 0; i <= this.allTime; i++) {
+              for (const item of this.allProcess) {
+                // 判断是否到达
+                if (parseInt(item.arrivalTime) === i) {
+                  let data = {
+                    time: i,
+                    name: item.name,
+                    arrivalTime: item.arrivalTime,
+                    burstTime: item.burstTime,
+                    cpuTime: item.cpuTime,
+                    allTime: item.burstTime, // 到达的时候 allTime = burstTime
+                    state: "到达",
+                  };
+                  item.state = "到达";
+                  item.allTime = item.burstTime;
+
+                  arriveArr.push(item); //到达之后在尾部push进去
+                  this.tableData.push(data);
+                }
+              }
+
+              if (parseInt(arriveArr[0].arrivalTime) !== i) {
+                arriveArr[0].cpuTime = parseInt(arriveArr[0].cpuTime) + 1;
+                arriveArr[0].allTime = parseInt(arriveArr[0].allTime) - 1;
+
+                let state = arriveArr[0].allTime === 0 ? "结束" : "服务";
+
+                let data = {
+                  time: i,
+                  name: arriveArr[0].name,
+                  arrivalTime: arriveArr[0].arrivalTime,
+                  burstTime: arriveArr[0].burstTime,
+                  cpuTime: arriveArr[0].cpuTime,
+                  allTime: arriveArr[0].allTime,
+                  state: state,
+                };
+                this.tableData.push(data);
+
+                // 更新一下数据
+                this.allProcess.forEach((item) => {
+                  if (item.name == arriveArr[0].name) {
+                    item = arriveArr[0];
+                  }
+                });
+
+                let head = Object.assign({}, arriveArr[0]); // 备份一下，马上要把他删除，然后在尾巴在push进去
+
+                arriveArr.shift(); // 删除第一项
+
+                if (head.allTime > 0) {
+                  //如果没有服务完
+                  arriveArr.push(head); // 再把原来的第一项放到结尾
+                }
+              }
+            }
+          },
+
+          HPF() {
+            this.tableData = [];
+            for (let i = 0; i <= this.allTime; i++) {
+              let doing = false;
+              for (const item of this.allProcess) {
+                // 判断是否到达
+                if (parseInt(item.arrivalTime) === i) {
+                  let data = {
+                    time: i,
+                    name: item.name,
+                    arrivalTime: item.arrivalTime,
+                    burstTime: item.burstTime,
+                    priority: item.priority,
+                    cpuTime: item.cpuTime,
+                    allTime: item.burstTime, // 到达的时候 allTime = burstTime
+                    state: "到达",
+                  };
+                  item.state = "到达";
+                  item.allTime = item.burstTime;
+                  this.tableData.push(data);
+                }
+
+                // 该服务谁...
+                // 1.到达了 2.优先数最高
+
+                // 到达的组成一个新数组
+                let arriveArr = []; //到达了的数组
+                for (const m_item of this.allProcess) {
+                  if (
+                    m_item.state === "到达" &&
+                    parseInt(m_item.arrivalTime) !== i &&
+                    parseInt(m_item.allTime) > 0
+                  ) {
+                    arriveArr.push(m_item);
+                  }
+                }
+
+                // 找到优先数最高的那个序号
+                let max = 0;
+                let k = 0; //序号
+                for (let j = 0; j < arriveArr.length; j++) {
+                  if (j === 1) {
+                    max = arriveArr[0].priority;
+                    k = 0;
+                  }
+
+                  if (max < arriveArr[j].priority) {
+                    max = arriveArr[j].priority;
+                    k = j;
+                  }
+                }
+
+                if (doing === false && arriveArr.length > 0) {
+                  arriveArr[k].cpuTime = parseInt(arriveArr[k].cpuTime) + 1;
+                  arriveArr[k].allTime = parseInt(arriveArr[k].allTime) - 1;
+
+                  let state = arriveArr[k].allTime === 0 ? "结束" : "服务";
+
+                  let data = {
+                    time: i,
+                    name: arriveArr[k].name,
+                    arrivalTime: arriveArr[k].arrivalTime,
+                    priority: arriveArr[k].priority,
+                    burstTime: arriveArr[k].burstTime,
+                    cpuTime: arriveArr[k].cpuTime,
+                    allTime: arriveArr[k].allTime,
+                    state: state,
+                  };
+                  this.tableData.push(data);
+
+                  this.allProcess.forEach((item) => {
+                    if (item.name == arriveArr[k].name) {
+                      item = arriveArr[k];
+                    }
+                  });
+
+                  doing = true;
+                }
+              }
+            }
+          },
+
+          submit() {
+            [this.allProcess, this.allTime] = this.getAllProcess();
+
+            if (this.radioType == "1") {
+              this.FCFS();
+            } else if (this.radioType == "2") {
+              this.SJF_QZ();
+            } else if (this.radioType == "3") {
+              this.RR();
+            } else if (this.radioType == "4") {
+              this.HPF();
+            } else if (this.radioType == "5") {
+              this.HRRN();
+            }
+            // 表格数据 , 进程 ,总服务次数
+            draw(this.tableData, this.allProcess, this.allTime);
+
+            this.$refs.cover.style.animationName = "move";
+            this.$refs.cover.style.animationDuration = "10s";
+            this.$refs.cover.style.animationFillMode = "forwards";
+            this.$refs.cover.style.animationTimingFunction = "linear";
+          },
+          pause() {
+            this.$refs.cover.style.animationPlaystate = "paused";
+          },
+          run() {
+            this.$refs.cover.style.animationPlaystate = "running";
+          },
+        },
+      });
+    </script>
+  </body>
+</html>
