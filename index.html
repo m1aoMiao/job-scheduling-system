@@ -1,9 +1,13 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <!-- import CSS -->
     <link rel="stylesheet" href="./css/index.css" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/element-ui/lib/theme-chalk/index.css"
+    />
     <link rel="stylesheet" href="./css/style.css" />
     <title>CPU调度算法</title>
   </head>
@@ -22,18 +26,19 @@
               :rows="8"
               placeholder="请输入内容"
               v-model="jobText"
+              @focus="handleFocus"
             >
             </el-input>
             <div class="radio-type">
               <el-radio v-model="radioType" label="1" border
-                >先来先服务算法(FCFS)</el-radio
-              >
+                >先来先服务算法(FCFS)
+              </el-radio>
               <el-radio v-model="radioType" label="2" border
-                >短作业优先算法(SJF)</el-radio
-              >
+                >短作业优先算法(SJF)
+              </el-radio>
               <el-radio v-model="radioType" label="3" border
-                >最高响应比优先算法(HRRN)</el-radio
-              >
+                >最高响应比优先算法(HRRN)
+              </el-radio>
               <div
                 style="display: flex; align-items: center; margin-left: 10px"
               >
@@ -49,12 +54,12 @@
             </div>
 
             <el-button class="btn" @click="submit" type="primary"
-              >运行</el-button
-            >
+              >运行
+            </el-button>
 
             <div class="wrap">
-              <canvas id="canvasAxis" width="1000" height="500"> </canvas>
-              <canvas id="canvasContent" width="1000" height="500"> </canvas>
+              <canvas id="canvasAxis" width="1000" height="500"></canvas>
+              <canvas id="canvasContent" width="1000" height="500"></canvas>
               <div class="cover" ref="cover"></div>
             </div>
             <div class="btn_wrapper">
@@ -63,14 +68,20 @@
               <el-button @click="exportTxt" type="primary">导出</el-button>
             </div>
 
-            <el-table :data="tableData" border style="width: 100%" height="500">
-              <el-table-column prop="time" label="时钟"> </el-table-column>
-              <el-table-column prop="name" label="作业名"> </el-table-column>
+            <el-table
+              :data="tableData"
+              border
+              stripe
+              style="width: 100%"
+              height="500"
+            >
+              <el-table-column prop="time" label="时钟"></el-table-column>
+              <el-table-column prop="name" label="作业名"></el-table-column>
               <el-table-column prop="arrivalTime" label="到达时间">
               </el-table-column>
               <el-table-column prop="burstTime" label="服务时间">
               </el-table-column>
-              <el-table-column prop="cpuTime" label="已服务"> </el-table-column>
+              <el-table-column prop="cpuTime" label="已服务"></el-table-column>
               <el-table-column prop="remainingTime" label="剩余服务">
               </el-table-column>
 
@@ -96,35 +107,15 @@
     <script src="./js/draw.js"></script>
 
     <script>
-      const debounce = function (func, delay) {
-        let timerId;
-
-        return function (...args) {
-          if (timerId) {
-            this.$message({
-              message: "请勿重复点击",
-              type: "error",
-            });
-            return;
-          }
-
-          clearTimeout(timerId);
-
-          timerId = setTimeout(() => {
-            func.apply(this, args);
-          }, delay);
-        };
-      };
-
       const job = {
-        id: 0,
-        name: "", //进程标识名
+        id: 0, // 作业id
+        name: "", // 作业标识名
         arrivalTime: 0, // 到达时间
         burstTime: 0, // 服务时间
-        cpuTime: 0, // 进程已占用CPU时间
-        remainingTime: 0, // 还需占用的CPU时间，当进程运行完毕时，ALLTIME变为0
-        state: "", // 进程状态
-        responseRatio: 0,
+        cpuTime: 0, // 作业已占用CPU时间
+        remainingTime: 0, // 还需占用的CPU时间
+        state: "", // 作业状态
+        responseRatio: 0, // 作业响应比
       };
 
       new Vue({
@@ -132,7 +123,6 @@
         data: {
           jobText:
             "1 A 0 3\n2 B 2 6\n3 C 4 4\n4 D 6 5\n5 E 8 2\n6 F 10 3\n7 G 12 2",
-          allJobs: [], // 所有进程
           totalTime: 0, //总服务时间
           tableData: [],
           radioType: "3",
@@ -142,6 +132,9 @@
           currentTime: 0,
           jobItem: [],
           txtData: [],
+          timerId: null,
+          firstTime: true,
+          running: false,
         },
         watch: {
           radioType() {
@@ -149,6 +142,10 @@
           },
         },
         computed: {
+          /**
+           * @description 计算平均周转时间
+           * @returns {number}
+           */
           averageTurnaroundTime() {
             this.calculateTurnaroundTimes(this.jobOrderList);
             return (
@@ -158,8 +155,12 @@
               ) / this.jobOrderList.length
             );
           },
+          /**
+           * @description 计算平均带权周转时间
+           * @returns {number}
+           */
           averageWeightedTurnaroundTime() {
-            this.calculateweightedTurnaroundTimes(this.jobOrderList);
+            this.calculateWeightedTurnaroundTimes(this.jobOrderList);
             return (
               this.jobOrderList.reduce(
                 (totalTime, job) => (totalTime += job.weightedTurnaroundTime),
@@ -169,22 +170,41 @@
           },
         },
         methods: {
+          /**
+           * @description 计算作业等待时间
+           * @param {Array}arr
+           */
           calculateWaitingTimes(arr) {
             for (const job of arr) {
               job.waitingTime = this.currentTime - job.arrivalTime;
             }
           },
+
+          /**
+           * @description 计算作业周转时间
+           * @param {Array}arr
+           */
           calculateTurnaroundTimes(arr) {
             for (const job of arr) {
               job.turnaroundTime = job.waitingTime + job.burstTime;
             }
           },
-          calculateweightedTurnaroundTimes(arr) {
+
+          /**
+           * @description 计算作业带权周转时间
+           * @param {Array}arr
+           */
+          calculateWeightedTurnaroundTimes(arr) {
             this.calculateTurnaroundTimes(arr);
             for (const job of arr) {
               job.weightedTurnaroundTime = job.turnaroundTime / job.burstTime;
             }
           },
+
+          /**
+           * @description 计算作业响应比
+           * @param {Array}arr
+           */
           calculateResponseRatios(arr) {
             for (const job of arr) {
               job.responseRatio = (
@@ -194,7 +214,12 @@
             }
           },
 
-          //   堆排序
+          /**
+           * @description 根据就绪队列拓展最大堆
+           * @param {Array}arr
+           * @param {string}n
+           * @param {string}i
+           */
           heapify(arr, n, i) {
             let largest = i;
             const left = 2 * i + 1;
@@ -220,6 +245,10 @@
             }
           },
 
+          /**
+           * @description 根据就绪队列建立最大堆
+           * @param {Array} arr
+           */
           buildMaxHeap(arr) {
             const n = arr.length;
             for (let i = Math.floor(n / 2) - 1; i >= 0; i--) {
@@ -229,6 +258,7 @@
 
           /**
            * @description 堆排序
+           * @param {Array} arr:就绪队列
            **/
           heapSortByResponseRatio(arr) {
             const n = arr.length;
@@ -241,6 +271,11 @@
             }
           },
 
+          /**
+           * @description 修改作业状态函数
+           * @param {string} state
+           * @returns {string} type:作业状态
+           */
           getTagType(state) {
             let type = "";
             switch (state) {
@@ -257,22 +292,38 @@
             return type;
           },
 
-          // 获取所有进程，文本框内的文本转对象。
-          getallJobs() {
-            // 换行符分割换行，也就是进程，一个成员(一行)为一个进程的信息。
+          /**
+           * @description 对文本框内容进行处理，生成作业对象
+           * @returns {(*[]|number)[]}
+           */
+          getAllJobs() {
+            // 换行符分割换行，也就是作业，一个成员(一行)为一个作业的信息。
             const jobLine = this.jobText.split("\n");
 
-            // 局部所有进程变量
+            // 局部所有作业变量
             let allJobs = [];
-            let totalTime = 0; // 所有进程加起来需要服务的时间
+            let totalTime = 0; // 所有作业加起来需要服务的时间
 
             jobLine.forEach((item) => {
-              // 遍历分割进程,写入进程对象
+              // 遍历分割作业,写入作业对象
               this.jobItem = item.split(" ");
+              console.log(this.jobItem);
+              if (
+                this.jobItem.length !== 4 ||
+                !this.jobItem.every((item) => item !== "")
+              ) {
+                this.$message({
+                  message: "输入信息格式错误",
+                  type: "error",
+                });
+                this.timerId = null;
+                throw new Error("输入信息格式错误");
+              }
               let m_job = Object.assign({}, job); // ES6的对象拷贝
               [m_job.id, m_job.name, m_job.arrivalTime, m_job.burstTime] =
-                this.jobItem; //解构赋值，等同于下
+                this.jobItem; //解构赋值
 
+              // 类型转换
               m_job.id = Number(m_job.id);
               m_job.arrivalTime = Number(m_job.arrivalTime);
               m_job.burstTime = Number(m_job.burstTime);
@@ -285,6 +336,10 @@
             allJobs.sort((a, b) => a.arrivalTime - b.arrivalTime);
             return [allJobs, totalTime];
           },
+          /**
+           * @description 作业排序算法(高阶函数)：完成就绪队列推入新作业，及当前作业完成后对作业进行排序的需求
+           * @param {function} fn
+           */
           sortBy(fn) {
             for (let i = 0; i <= this.totalTime; i++) {
               let data = { time: i };
@@ -298,12 +353,15 @@
                   this.readyQueue.push(data);
                 }
               }
+              // 判断就绪队列是否为空
               if (this.readyQueue.length > 0) {
                 this.readyQueue[0].cpuTime++;
                 this.readyQueue[0].remainingTime--;
                 data = { ...data, ...this.readyQueue[0] };
+                data.time = i;
                 data.state =
                   this.readyQueue[0].remainingTime === 0 ? "结束" : "服务";
+                // 如果有作业完成，对就绪队列剩余内容根据不同算法执行不同排序
                 if (this.readyQueue[0].remainingTime === 0) {
                   this.currentTime = i;
                   this.calculateWaitingTimes(this.readyQueue);
@@ -337,48 +395,108 @@
            * @description 高响应比优先算法
            **/
           HRRN() {
-            this.sortBy(() => this.heapSortByResponseRatio(this.readyQueue));
+            this.sortBy(() => {
+              this.calculateResponseRatios(this.readyQueue);
+              this.heapSortByResponseRatio(this.readyQueue);
+            });
           },
-          debouncedSubmit() {
-            debounce(() => {
-              [this.allJobs, this.totalTime] = this.getallJobs();
 
-              if (this.radioType == "1") {
+          /**
+           * @description 节流函数:多次点击时不调用，如果某次点击两秒内没有重复点击，调用函数
+           **/
+          throttle(func, delay) {
+            return (...args) => {
+              if (this.timerId) {
+                this.$message({
+                  message: "请勿重复点击",
+                  type: "error",
+                });
+                return;
+              }
+
+              clearTimeout(this.timerId);
+
+              this.timerId = setTimeout(() => {
+                func.apply(this, args);
+                this.timerId = null;
+              }, delay);
+            };
+          },
+
+          /**
+           * @description 执行算法函数
+           */
+          submit() {
+            this.tableData = [];
+            this.jobOrderList = [];
+            this.$refs.cover.style.animationName = "";
+            this.throttle(() => {
+              [this.allJobs, this.totalTime] = this.getAllJobs();
+
+              if (this.radioType === "1") {
                 this.FCFS();
-              } else if (this.radioType == "2") {
+              } else if (this.radioType === "2") {
                 this.SJF();
-              } else if (this.radioType == "3") {
+              } else if (this.radioType === "3") {
                 this.HRRN();
               }
-              // 表格数据 , 进程 ,总服务次数
+              // 表格数据 , 作业 ,总服务次数
               draw(this.tableData, this.allJobs, this.totalTime);
               this.$refs.cover.style.animationName = "move";
               this.$refs.cover.style.animationDuration = "10s";
               this.$refs.cover.style.animationFillMode = "forwards";
               this.$refs.cover.style.animationTimingFunction = "linear";
-            }, 2000);
+              this.running = !this.running;
+            }, 2000)();
           },
-          submit() {
-            this.tableData = [];
-            this.jobOrderList = [];
-            this.$refs.cover.style.animationName = "";
-            console.log(this.debouncedSubmit)
-            this.debouncedSubmit();
-          },
+          /**
+           * @description 暂停执行算法函数
+           */
           pause() {
-            this.$refs.cover.style.animationPlaystate = "paused";
+            if (!this.running) {
+              this.$message({
+                message: "请勿重复点击",
+                type: "error",
+              });
+              return;
+            }
+            this.$refs.cover.style["animation-play-state"] = "paused";
           },
+          /**
+           * @description 继续执行算法函数
+           */
           run() {
-            this.$refs.cover.style.animationPlaystate = "running";
+            if (!this.running) {
+              this.$message({
+                message: "请勿重复点击",
+                type: "error",
+              });
+              return;
+            }
+            this.$refs.cover.style["animation-play-state"] = "running";
           },
+          /**
+           * @description 导出文件
+           */
           exportTxt() {
             const name = "data.txt"; //文件名
             const urlObject = window.URL || window.webkitURL || window;
-            const export_blob = new Blob([]);
+            const export_blob = new Blob([this.jobText]);
             const save_link = document.createElement("a");
             save_link.href = urlObject.createObjectURL(export_blob);
             save_link.download = name;
             save_link.click();
+          },
+          /**
+           * @description 处理第一次进行输入时，弹出对话框对输入格式进行提醒
+           */
+          handleFocus() {
+            if (this.firstTime) {
+              alert(
+                "每输入一个作业属性后用空格分开，每完成一个作业输入键入回车"
+              );
+              this.firstTime = !this.firstTime;
+            }
           },
         },
       });
